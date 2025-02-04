@@ -1,5 +1,7 @@
+# action.yml
 name: 'Helm Validation Service'
 description: 'Performs helm lint and helm template on specified chart'
+
 inputs:
   chart-path:
     description: 'Path to the Helm chart'
@@ -8,11 +10,14 @@ inputs:
     description: 'Path to values file (optional)'
     required: false
     default: ''
+
 runs:
   using: "composite"
   steps:
     - name: Set up Helm
       uses: azure/setup-helm@v3
+      with:
+        version: 'v3.9.0'
       
     - name: Helm Lint
       shell: bash
