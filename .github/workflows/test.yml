@@ -1,5 +1,17 @@
+# .github/workflows/test.yml
 name: 'Test Action'
 on:
+  workflow_call:
+    inputs:
+      chart-path:
+        description: 'Path to the Helm chart'
+        required: true
+        type: string
+      values-file:
+        description: 'Path to the values file'
+        required: false
+        type: string
+        default: ''
   push:
     branches: [ main ]
   pull_request:
@@ -11,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # Test the action
+      # Test the action using inputs or default test paths
       - uses: ./
         with:
-          chart-path: './test/chart'  # You'll create this test chart
-          values-file: './test/chart/values.yaml'
+          chart-path: ${{ inputs.chart-path }}
+          values-file: ${{ inputs.values-file }}
