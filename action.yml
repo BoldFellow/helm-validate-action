@@ -19,23 +19,24 @@ runs:
     - name: Helm Lint
       shell: bash
       run: |
-        echo "Starting Helm lint..."
+        echo "=== Starting Helm Lint ==="
         if [ -n "${{ inputs.values-file }}" ]; then
           helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
           helm lint ${{ inputs.chart-path }}
         fi
-        echo "Helm lint completed."
+        echo "=== Helm Lint Completed ==="
         
     - name: Helm Template
       shell: bash
       run: |
-        echo "Starting Helm template..."
+        echo "=== Starting Helm Template ==="
+        echo "Generating Kubernetes manifests..."
         if [ -n "${{ inputs.values-file }}" ]; then
-          echo "Running helm template with values file..."
-          helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
+          echo "Using values file: ${{ inputs.values-file }}"
+          helm template test-release ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
-          echo "Running helm template without values file..."
-          helm template ${{ inputs.chart-path }}
+          echo "Using default values"
+          helm template test-release ${{ inputs.chart-path }}
         fi
-        echo "Helm template completed."
+        echo "=== Helm Template Completed ==="
