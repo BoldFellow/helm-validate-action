@@ -1,7 +1,5 @@
-# action.yml
 name: 'Helm Validation Service'
 description: 'Performs helm lint and helm template on specified chart'
-
 inputs:
   chart-path:
     description: 'Path to the Helm chart'
@@ -10,7 +8,6 @@ inputs:
     description: 'Path to values file (optional)'
     required: false
     default: ''
-
 runs:
   using: "composite"
   steps:
@@ -22,17 +19,23 @@ runs:
     - name: Helm Lint
       shell: bash
       run: |
+        echo "Starting Helm lint..."
         if [ -n "${{ inputs.values-file }}" ]; then
           helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
           helm lint ${{ inputs.chart-path }}
         fi
+        echo "Helm lint completed."
         
     - name: Helm Template
       shell: bash
       run: |
+        echo "Starting Helm template..."
         if [ -n "${{ inputs.values-file }}" ]; then
+          echo "Running helm template with values file..."
           helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
+          echo "Running helm template without values file..."
           helm template ${{ inputs.chart-path }}
         fi
+        echo "Helm template completed."
