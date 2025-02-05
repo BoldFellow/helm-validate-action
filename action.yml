@@ -10,6 +10,9 @@ inputs:
     description: 'Path to values file (optional)'
     required: false
     default: ''
+  github-token:
+    description: 'GitHub token for PR comments'
+    required: true
 
 runs:
   using: 'composite'
@@ -22,21 +25,43 @@ runs:
     - name: Helm Lint
       shell: bash
       run: |
-        echo "=== Starting Helm Lint ==="
+        echo "=== Starting Helm Validation ==="
         if [ -n "${{ inputs.values-file }}" ]; then
           helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
           helm lint ${{ inputs.chart-path }}
         fi
-        echo "=== Helm Lint Completed ==="
         
-    - name: Helm Template
+        # Always run template to validate syntax
+        if [ -n "${{ inputs.values-file }}" ]; then
+          helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }} > /dev/null
+        else
+          helm template ${{ inputs.chart-path }} > /dev/null
+        fi
+        echo "=== Validation Completed ==="
+        
+    - name: Generate Template Output for PR
+      if: github.event_name == 'pull_request'
       shell: bash
       run: |
-        echo "=== Starting Helm Template ==="
+        echo "=== Generating Template Output for PR Review ==="
+        # Save template output to file
         if [ -n "${{ inputs.values-file }}" ]; then
-          helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
+          helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }} > template_output.txt
         else
-          helm template ${{ inputs.chart-path }}
+          helm template ${{ inputs.chart-path }} > template_output.txt
         fi
-        echo "=== Helm Template Completed ==="
+        # Create formatted comment content
+        echo "### Helm Template Output for PR Review" > comment.txt
+        echo "Generated from chart path: ${{ inputs.chart-path }}" >> comment.txt
+        echo '```yaml' >> comment.txt
+        cat template_output.txt >> comment.txt
+        echo '```' >> comment.txt
+        
+    - name: Comment on PR
+      uses: peter-evans/create-or-update-comment@v3
+      if: github.event_name == 'pull_request'
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        token: ${{ inputs.github-token }}
+        body-file: comment.txt
