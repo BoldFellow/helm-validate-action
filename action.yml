@@ -81,7 +81,7 @@ runs:
             filename=$(basename "$file")
             echo "Processing: $filename"
             
-            TEMPLATE_OUTPUT+="#### 📄 File: $file\n\n"
+            TEMPLATE_OUTPUT+="📄 File: $file\n\n"
             
             # Extract the relevant template section for this file
             file_template=$(echo "$all_templates" | awk -v file="$filename" '
@@ -125,15 +125,6 @@ runs:
           \`\`\`
 
           </details>
-
-          ${hasErrors ? `
-          ### 🚨 Validation Errors Detected
-          Please review the output above and fix the identified issues. Common problems include:
-          - YAML syntax errors
-          - Missing required fields
-          - Incorrect indentation
-          - Invalid Kubernetes resource definitions
-          ` : ''}
 
           ${templateOutput ? `
           ### Generated Templates
