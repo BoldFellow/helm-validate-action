@@ -19,44 +19,70 @@ runs:
       with:
         version: 'v3.9.0'
       
-    - name: Helm Lint and Template Validation
+    - name: Helm Lint
       shell: bash
-      id: validation
       run: |
         echo "=== Starting Helm Validation ==="
-        
-        # Run helm lint
         if [ -n "${{ inputs.values-file }}" ]; then
           helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
           helm lint ${{ inputs.chart-path }}
         fi
-        
-        echo "=== Starting Template Validation ==="
-        
-        # Run helm template
-        if [ -n "${{ inputs.values-file }}" ]; then
-          TEMPLATE=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }})
-        else
-          TEMPLATE=$(helm template ${{ inputs.chart-path }})
-        fi
-        
-        # Save template output to GITHUB_OUTPUT
-        echo "template<<EOF" >> $GITHUB_OUTPUT
-        echo "$TEMPLATE" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-        
         echo "=== Validation Completed ==="
 
-    - name: Comment on PR
+    - name: Generate Template Output for Changed Files
       if: github.event_name == 'pull_request'
+      shell: bash
+      id: template
+      run: |
+        # Get list of changed files in this PR
+        changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '\.yaml$' || true)
+        
+        if [ -n "$changed_files" ]; then
+          echo "Changed YAML files detected. Generating templates..."
+          
+          # Initialize template output
+          TEMPLATE_OUTPUT="# Changed Files Templates\n\n"
+          
+          # Process each changed file
+          for file in $changed_files; do
+            if [[ -f "$file" ]]; then
+              echo "Processing changes in: $file"
+              TEMPLATE_OUTPUT+="## File: $file\n\n"
+              
+              if [ -n "${{ inputs.values-file }}" ]; then
+                file_template=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }} | grep -A1000 -B1000 "$(basename $file)" || true)
+              else
+                file_template=$(helm template ${{ inputs.chart-path }} | grep -A1000 -B1000 "$(basename $file)" || true)
+              fi
+              
+              if [ -n "$file_template" ]; then
+                TEMPLATE_OUTPUT+="$file_template\n\n---\n\n"
+              fi
+            fi
+          done
+          
+          # Save template output
+          echo "template<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$TEMPLATE_OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Indicate we have changes
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "No YAML files changed in this PR."
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && steps.template.outputs.has_changes == 'true'
       uses: actions/github-script@v6
       with:
         script: |
           const output = `## Helm Template Validation Results
           #### Chart Path: \`${{ inputs.chart-path }}\`
           
-          <details><summary>Show Generated Kubernetes Manifests</summary>
+          <details><summary>Show Generated Kubernetes Manifests (Changed Files Only)</summary>
           
           \`\`\`yaml
           ${process.env.TEMPLATE}
@@ -71,4 +97,4 @@ runs:
             body: output
           })
       env:
-        TEMPLATE: ${{ steps.validation.outputs.template }}
+        TEMPLATE: ${{ steps.template.outputs.template }}
