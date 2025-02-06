@@ -66,13 +66,36 @@ runs:
           echo "Changed template files detected:"
           echo "$changed_files"
           
-          TEMPLATE_OUTPUT="### Changed Files:\n"
+          # Initialize template output
+          TEMPLATE_OUTPUT="### Modified Templates:\n\n"
           
+          # Generate complete template once
+          if [ -n "${{ inputs.values-file }}" ]; then
+            all_templates=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }})
+          else
+            all_templates=$(helm template ${{ inputs.chart-path }})
+          fi
+          
+          # Process each changed file
           for file in $changed_files; do
-            TEMPLATE_OUTPUT+="\n#### 📄 $file\n"
+            filename=$(basename "$file")
+            echo "Processing: $filename"
+            
+            TEMPLATE_OUTPUT+="#### 📄 File: $file\n\n"
+            
+            # Extract the relevant template section for this file
+            file_template=$(echo "$all_templates" | awk -v file="$filename" '
+              /^# Source:.*'$filename'$/ {p=1; print; next}
+              /^---*$/ {if(p) {print; p=0; next}}
+              p {print}
+            ')
+            
+            if [ -n "$file_template" ]; then
+              TEMPLATE_OUTPUT+="$file_template\n\n---\n\n"
+            fi
           done
           
-          # Save output
+          # Save template output
           echo "template<<EOF" >> $GITHUB_OUTPUT
           echo -e "$TEMPLATE_OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -89,6 +112,7 @@ runs:
         script: |
           const lintOutput = process.env.LINT_OUTPUT;
           const hasErrors = '${{ steps.lint.outputs.has_errors }}' === 'true';
+          const templateOutput = process.env.TEMPLATE;
           
           const output = `## Helm Chart Validation Results
 
@@ -111,7 +135,16 @@ runs:
           - Invalid Kubernetes resource definitions
           ` : ''}
 
-          ${process.env.TEMPLATE || ''}`;
+          ${templateOutput ? `
+          ### Generated Templates
+          <details><summary>Show Modified Templates</summary>
+
+          \`\`\`yaml
+          ${templateOutput}
+          \`\`\`
+
+          </details>
+          ` : ''}`;
           
           await github.rest.issues.createComment({
             issue_number: context.issue.number,
