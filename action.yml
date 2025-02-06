@@ -33,14 +33,15 @@ runs:
         fi
         
         echo "=== Starting Template Validation ==="
-        # Always run template validation and store output
+        
+        # Run helm template
         if [ -n "${{ inputs.values-file }}" ]; then
           TEMPLATE=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }})
         else
           TEMPLATE=$(helm template ${{ inputs.chart-path }})
         fi
         
-        # Save template output regardless of event type
+        # Save template output to GITHUB_OUTPUT
         echo "template<<EOF" >> $GITHUB_OUTPUT
         echo "$TEMPLATE" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
