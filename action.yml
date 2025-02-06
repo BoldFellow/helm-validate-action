@@ -70,7 +70,7 @@ runs:
             filename=$(basename "$file")
             echo "Processing changes in: $filename"
             
-            TEMPLATE_OUTPUT+="\n 📄 Modified File: \`$file\`\n"
+            TEMPLATE_OUTPUT+="\n📄 Modified File: \`$file\`\n"
             TEMPLATE_OUTPUT+="Below is the rendered template after the changes:\n\n"
             
             # Extract only the relevant template section for this file
