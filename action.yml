@@ -95,7 +95,7 @@ runs:
             filename=$(basename "$file")
             echo "Processing: $filename"
             
-            TEMPLATE_OUTPUT+="#### 📄 File: $file\n\n"
+            TEMPLATE_OUTPUT+="📄 File: $file\n\n"
             
             # Extract the relevant template section for this file
             file_template=$(echo "$all_templates" | awk -v file="$filename" '
