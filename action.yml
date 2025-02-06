@@ -2,6 +2,7 @@
 name: 'Helm Validation Service'
 description: 'Performs helm lint and template validation on specified charts'
 
+# Define the inputs our action accepts
 inputs:
   chart-path:
     description: 'Path to the Helm chart'
@@ -11,14 +12,17 @@ inputs:
     required: false
     default: ''
 
+# Define the action's execution steps
 runs:
   using: 'composite'
   steps:
+    # Step 1: Set up Helm with a specific version
     - name: Set up Helm
       uses: azure/setup-helm@v3
       with:
         version: 'v3.9.0'
       
+    # Step 2: Run Helm lint and capture all output including errors
     - name: Helm Lint and Capture Output
       shell: bash
       id: lint
@@ -26,23 +30,32 @@ runs:
         echo "=== Starting Helm Chart Validation ==="
         echo "Validating chart at: ${{ inputs.chart-path }}"
         
-        # Run helm lint and capture all output
+        # Create a temporary file to store complete output
+        TEMP_OUTPUT=$(mktemp)
+        
+        # Run helm lint and capture ALL output including ALL errors
         if [ -n "${{ inputs.values-file }}" ]; then
-          OUTPUT=$(helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }} 2>&1) || true
+          helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }} > "$TEMP_OUTPUT" 2>&1 || true
         else
-          OUTPUT=$(helm lint ${{ inputs.chart-path }} 2>&1) || true
+          helm lint ${{ inputs.chart-path }} > "$TEMP_OUTPUT" 2>&1 || true
         fi
+        
+        # Read the complete output
+        OUTPUT=$(cat "$TEMP_OUTPUT")
         
         # Display output in logs
         echo "$OUTPUT"
         
-        # Save output for PR comment
+        # Clean up temporary file
+        rm "$TEMP_OUTPUT"
+        
+        # Save complete output for PR comment
         echo "output<<EOF" >> $GITHUB_OUTPUT
         echo "$OUTPUT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
         
-        # Check if there were errors
-        if echo "$OUTPUT" | grep -q "Error:"; then
+        # Check if there were any errors
+        if echo "$OUTPUT" | grep -q "Error:" || echo "$OUTPUT" | grep -q "ERROR"; then
           echo "has_errors=true" >> $GITHUB_OUTPUT
         else
           echo "has_errors=false" >> $GITHUB_OUTPUT
@@ -50,6 +63,7 @@ runs:
         
         echo "=== Validation Completed ==="
 
+    # Step 3: Generate template output for changed files
     - name: Generate Template Output for Changed Files
       if: github.event_name == 'pull_request'
       shell: bash
@@ -81,7 +95,7 @@ runs:
             filename=$(basename "$file")
             echo "Processing: $filename"
             
-            TEMPLATE_OUTPUT+="📄 File: $file\n\n"
+            TEMPLATE_OUTPUT+="#### 📄 File: $file\n\n"
             
             # Extract the relevant template section for this file
             file_template=$(echo "$all_templates" | awk -v file="$filename" '
@@ -105,6 +119,7 @@ runs:
           echo "has_changes=false" >> $GITHUB_OUTPUT
         fi
 
+    # Step 4: Create or update PR comment with validation results
     - name: Comment on PR
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
