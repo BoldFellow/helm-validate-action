@@ -35,11 +35,14 @@ runs:
       shell: bash
       id: template
       run: |
-        # Get list of changed files in this PR
-        changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '\.yaml$' || true)
+        # Fetch the necessary git history
+        git fetch origin ${{ github.base_ref }}
+        
+        # Get list of changed files by comparing with base branch
+        changed_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.yaml$' || true)
         
         if [ -n "$changed_files" ]; then
-          echo "Changed YAML files detected. Generating templates..."
+          echo "Changed files detected: $changed_files"
           
           # Initialize template output
           TEMPLATE_OUTPUT="# Changed Files Templates\n\n"
@@ -67,7 +70,6 @@ runs:
           echo -e "$TEMPLATE_OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          # Indicate we have changes
           echo "has_changes=true" >> $GITHUB_OUTPUT
         else
           echo "No YAML files changed in this PR."
