@@ -39,22 +39,19 @@ runs:
         changed_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep 'templates/.*\.yaml$' || true)
         
         if [ -n "$changed_files" ]; then
-          # Generate complete template once
           if [ -n "${{ inputs.values-file }}" ]; then
             all_templates=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }})
           else
             all_templates=$(helm template ${{ inputs.chart-path }})
           fi
           
-          # Process each changed file
           TEMPLATE_OUTPUT="### Modified Templates:\n\n"
           for file in $changed_files; do
-            TEMPLATE_OUTPUT+="📄 File: $file\n\n"
-            
-            # Improved template extraction using sed instead of awk
+            # Get just the template content without our added header
             file_template=$(echo "$all_templates" | sed -n "/# Source:.*$(basename "$file")/,/---/p")
             
             if [ -n "$file_template" ]; then
+              # Add just the source header, skip our custom file path
               TEMPLATE_OUTPUT+="$file_template\n\n"
             fi
           done
