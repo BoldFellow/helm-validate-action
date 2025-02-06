@@ -45,7 +45,7 @@ runs:
             all_templates=$(helm template ${{ inputs.chart-path }})
           fi
           
-          TEMPLATE_OUTPUT="### Modified Templates:\n\n"
+          TEMPLATE_OUTPUT="### Modified Templates: ###\n\n"
           for file in $changed_files; do
             # Get just the template content without our added header
             file_template=$(echo "$all_templates" | sed -n "/# Source:.*$(basename "$file")/,/---/p")
