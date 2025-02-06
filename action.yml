@@ -19,115 +19,111 @@ runs:
       with:
         version: 'v3.9.0'
       
-    - name: Helm Lint
+    - name: Helm Lint and Capture Output
       shell: bash
       id: lint
       run: |
         echo "=== Starting Helm Chart Validation ==="
         echo "Validating chart at: ${{ inputs.chart-path }}"
         
-        # Create temporary file for capturing output
-        LINT_OUTPUT_FILE=$(mktemp)
-        
-        # Run helm lint and capture both stdout and stderr
+        # Run helm lint and capture all output
         if [ -n "${{ inputs.values-file }}" ]; then
-          helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }} > "$LINT_OUTPUT_FILE" 2>&1
-          LINT_EXIT_CODE=$?
+          OUTPUT=$(helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }} 2>&1) || true
         else
-          helm lint ${{ inputs.chart-path }} > "$LINT_OUTPUT_FILE" 2>&1
-          LINT_EXIT_CODE=$?
+          OUTPUT=$(helm lint ${{ inputs.chart-path }} 2>&1) || true
         fi
         
-        # Read and display the output
-        LINT_OUTPUT=$(cat "$LINT_OUTPUT_FILE")
-        echo "$LINT_OUTPUT"
+        # Display output in logs
+        echo "$OUTPUT"
         
-        # Save the output and status for PR comment
-        echo "exit_code=$LINT_EXIT_CODE" >> $GITHUB_OUTPUT
-        echo "lint_output<<EOF" >> $GITHUB_OUTPUT
-        echo "$LINT_OUTPUT" >> $GITHUB_OUTPUT
+        # Save output for PR comment
+        echo "output<<EOF" >> $GITHUB_OUTPUT
+        echo "$OUTPUT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
         
-        # Clean up temporary file
-        rm "$LINT_OUTPUT_FILE"
-        
-        echo "=== Basic Validation Completed ==="
-        # Only exit with error after we've captured all output
-        if [ $LINT_EXIT_CODE -ne 0 ]; then
-          exit $LINT_EXIT_CODE
+        # Check if there were errors
+        if echo "$OUTPUT" | grep -q "Error:"; then
+          echo "has_errors=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_errors=false" >> $GITHUB_OUTPUT
         fi
+        
+        echo "=== Validation Completed ==="
 
     - name: Generate Template Output for Changed Files
       if: github.event_name == 'pull_request'
       shell: bash
       id: template
+      continue-on-error: true
       run: |
-        # Previous template generation code remains the same...
-        # (Keep the existing code for template generation)
+        # Fetch necessary git history
+        git fetch origin ${{ github.base_ref }}
+        
+        # Get only yaml files that changed in templates directory
+        changed_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep 'templates/.*\.yaml$' || true)
+        
+        if [ -n "$changed_files" ]; then
+          echo "Changed template files detected:"
+          echo "$changed_files"
+          
+          TEMPLATE_OUTPUT="### Changed Files:\n"
+          
+          for file in $changed_files; do
+            TEMPLATE_OUTPUT+="\n#### 📄 $file\n"
+          done
+          
+          # Save output
+          echo "template<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$TEMPLATE_OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "No template files were changed in this PR."
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Comment on PR
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         script: |
-          const lintExitCode = '${{ steps.lint.outputs.exit_code }}';
           const lintOutput = process.env.LINT_OUTPUT;
+          const hasErrors = '${{ steps.lint.outputs.has_errors }}' === 'true';
           
-          let validationStatus = '✅ Passed';
-          let statusColor = 'green';
-          
-          if (lintExitCode !== '0') {
-            validationStatus = '❌ Failed';
-            statusColor = 'red';
-          }
-          
-          const output = `## 🔍 Helm Template Validation Results
-          
-          ### Validation Status: ${validationStatus}
-          
-          ### Validation Details
-          - Chart Path: \`${{ inputs.chart-path }}\`
-          - Values File: ${('${{ inputs.values-file }}' || 'Using default values')}
-          
-          ### Lint Results
-          <details><summary>Show Helm Lint Output ${lintExitCode !== '0' ? '(Contains Errors ❌)' : ''}</summary>
-          
+          const output = `## Helm Chart Validation Results
+
+          ### Status: ${hasErrors ? '❌ Validation Failed' : '✅ Validation Passed'}
+
+          <details><summary>📋 Validation Output ${hasErrors ? '(Contains Errors)' : ''}</summary>
+
           \`\`\`
           ${lintOutput}
           \`\`\`
-          
+
           </details>
-          
-          ${process.env.TEMPLATE ? `
-          ### Template Changes
-          <details><summary>Show Changed Templates</summary>
-          
-          \`\`\`yaml
-          ${process.env.TEMPLATE}
-          \`\`\`
-          
-          </details>
-          ` : ''}
-          
-          ${lintExitCode !== '0' ? `
-          ### ⚠️ Action Required
-          Please review the lint errors above and make necessary corrections to your Helm charts.
-          Common issues to check:
+
+          ${hasErrors ? `
+          ### 🚨 Validation Errors Detected
+          Please review the output above and fix the identified issues. Common problems include:
           - YAML syntax errors
           - Missing required fields
           - Incorrect indentation
           - Invalid Kubernetes resource definitions
           ` : ''}
+
+          ${process.env.TEMPLATE || ''}`;
           
-          > Note: This validation shows the lint results and any templates that were modified in this PR.
-          `;
-          
-          github.rest.issues.createComment({
+          await github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
             body: output
-          })
+          });
+          
+          // If there were errors, fail the action after posting the comment
+          if (hasErrors) {
+            throw new Error('Helm validation failed. See PR comment for details.');
+          }
       env:
+        LINT_OUTPUT: ${{ steps.lint.outputs.output }}
         TEMPLATE: ${{ steps.template.outputs.template }}
-        LINT_OUTPUT: ${{ steps.lint.outputs.lint_output }}
