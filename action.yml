@@ -2,7 +2,6 @@
 name: 'Helm Validation Service'
 description: 'Performs helm lint and template validation on specified charts'
 
-# Define the inputs our action accepts
 inputs:
   chart-path:
     description: 'Path to the Helm chart'
@@ -12,157 +11,80 @@ inputs:
     required: false
     default: ''
 
-# Define the action's execution steps
 runs:
   using: 'composite'
   steps:
-    # Step 1: Set up Helm with a specific version
     - name: Set up Helm
       uses: azure/setup-helm@v3
       with:
         version: 'v3.9.0'
       
-    # Step 2: Run Helm lint and capture all output including errors
-    - name: Helm Lint and Capture Output
+    - name: Helm Lint
       shell: bash
-      id: lint
       run: |
         echo "=== Starting Helm Chart Validation ==="
-        echo "Validating chart at: ${{ inputs.chart-path }}"
-        
-        # Create a temporary file to store complete output
-        TEMP_OUTPUT=$(mktemp)
-        
-        # Run helm lint and capture ALL output including ALL errors
         if [ -n "${{ inputs.values-file }}" ]; then
-          helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }} > "$TEMP_OUTPUT" 2>&1 || true
+          helm lint ${{ inputs.chart-path }} -f ${{ inputs.values-file }}
         else
-          helm lint ${{ inputs.chart-path }} > "$TEMP_OUTPUT" 2>&1 || true
+          helm lint ${{ inputs.chart-path }}
         fi
-        
-        # Read the complete output
-        OUTPUT=$(cat "$TEMP_OUTPUT")
-        
-        # Display output in logs
-        echo "$OUTPUT"
-        
-        # Clean up temporary file
-        rm "$TEMP_OUTPUT"
-        
-        # Save complete output for PR comment
-        echo "output<<EOF" >> $GITHUB_OUTPUT
-        echo "$OUTPUT" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-        
-        # Check if there were any errors
-        if echo "$OUTPUT" | grep -q "Error:" || echo "$OUTPUT" | grep -q "ERROR"; then
-          echo "has_errors=true" >> $GITHUB_OUTPUT
-        else
-          echo "has_errors=false" >> $GITHUB_OUTPUT
-        fi
-        
         echo "=== Validation Completed ==="
 
-    # Step 3: Generate template output for changed files
-    - name: Generate Template Output for Changed Files
+    # Generate and capture template output for changed files
+    - name: Generate Template for Changed Files
       if: github.event_name == 'pull_request'
       shell: bash
       id: template
-      continue-on-error: true
       run: |
-        # Fetch necessary git history
         git fetch origin ${{ github.base_ref }}
-        
-        # Get only yaml files that changed in templates directory
         changed_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep 'templates/.*\.yaml$' || true)
         
         if [ -n "$changed_files" ]; then
-          echo "Changed template files detected:"
-          echo "$changed_files"
+          # Generate complete template once for efficiency
+          all_templates=$(helm template ${{ inputs.chart-path }} ${{ inputs.values-file != '' && '-f ' || '' }}${{ inputs.values-file }})
           
-          # Initialize template output
+          # Create formatted output for each changed file
           TEMPLATE_OUTPUT="### Modified Templates:\n\n"
-          
-          # Generate complete template once
-          if [ -n "${{ inputs.values-file }}" ]; then
-            all_templates=$(helm template ${{ inputs.chart-path }} -f ${{ inputs.values-file }})
-          else
-            all_templates=$(helm template ${{ inputs.chart-path }})
-          fi
-          
-          # Process each changed file
           for file in $changed_files; do
-            filename=$(basename "$file")
-            echo "Processing: $filename"
-            
-            TEMPLATE_OUTPUT+="📄 File: $file\n\n"
-            
-            # Extract the relevant template section for this file
-            file_template=$(echo "$all_templates" | awk -v file="$filename" '
-              /^# Source:.*'$filename'$/ {p=1; print; next}
+            TEMPLATE_OUTPUT+="📄 Modified File: $file\n\n"
+            file_template=$(echo "$all_templates" | awk -v file="$(basename $file)" '
+              /^# Source:.*'$file'$/ {p=1; print; next}
               /^---*$/ {if(p) {print; p=0; next}}
               p {print}
             ')
-            
-            if [ -n "$file_template" ]; then
-              TEMPLATE_OUTPUT+="$file_template\n\n---\n\n"
-            fi
+            [ -n "$file_template" ] && TEMPLATE_OUTPUT+="$file_template\n\n---\n\n"
           done
           
-          # Save template output
           echo "template<<EOF" >> $GITHUB_OUTPUT
           echo -e "$TEMPLATE_OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-        else
-          echo "No template files were changed in this PR."
-          echo "has_changes=false" >> $GITHUB_OUTPUT
         fi
 
-    # Step 4: Create or update PR comment with validation results
+    # Comment the template output on the PR
     - name: Comment on PR
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         script: |
-          const lintOutput = process.env.LINT_OUTPUT;
-          const hasErrors = '${{ steps.lint.outputs.has_errors }}' === 'true';
           const templateOutput = process.env.TEMPLATE;
           
-          const output = `## Helm Chart Validation Results
-
-          ### Status: ${hasErrors ? '❌ Validation Failed' : '✅ Validation Passed'}
-
-          <details><summary>📋 Validation Output ${hasErrors ? '(Contains Errors)' : ''}</summary>
-
-          \`\`\`
-          ${lintOutput}
-          \`\`\`
-
-          </details>
-
-          ${templateOutput ? `
-          ### Generated Templates
-          <details><summary>Show Modified Templates</summary>
-
-          \`\`\`yaml
-          ${templateOutput}
-          \`\`\`
-
-          </details>
-          ` : ''}`;
-          
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          });
-          
-          // If there were errors, fail the action after posting the comment
-          if (hasErrors) {
-            throw new Error('Helm validation failed. See PR comment for details.');
+          if (templateOutput) {
+            const output = `## Helm Template Results
+            
+            <details><summary>Show Modified Templates</summary>
+            
+            \`\`\`yaml
+            ${templateOutput}
+            \`\`\`
+            
+            </details>`;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
           }
       env:
-        LINT_OUTPUT: ${{ steps.lint.outputs.output }}
         TEMPLATE: ${{ steps.template.outputs.template }}
